@@ -152,6 +152,61 @@ df.red.2 <- df.red %>% mutate(ag_hist = ag_000 + ag_001 + ag_002 + ag_003 + ag_0
                                 ee_000 , ee_001 , ee_002 , ee_003 , ee_004 , ee_005 , ee_006 , ee_007 , ee_008 , ee_009))
 ```
 
+PCA
+
+- to find hidden patterns
+
+- explore correlation between vars
+
+- find significant vars
+
+- prepare data for clustering to exclude outliers
+
+```{r message = FALSE, warning = FALSE}
+if(!require(FactoMineR)) {
+  install.packages("FactoMineR"); require(FactoMineR)}
+
+num.pc  <- 20
+pca.res <- PCA(df.red.2, quali.sup = 1, scale = T, graph = F, ncp = num.pc)
+```
+
+
+```{r}
+eigenvalues <- pca.res$eig
+eigenvalues
+```
+
+```{r message = FALSE, warning = FALSE}
+
+if(!require(factoextra)){
+  install.packages("factoextra"); require(factoextra)}
+
+fviz_screeplot(pca.res, ncp = 20, linecolor = "red")
+```
+
+Let's take the first 5 PC to cluster the data and evaluate outliers to be removed. Once it is done, we will come back to PCA more precisely
+
+```{r}
+ncp <- 5
+pca.df <- data.frame(pca.res$ind$coord[, 1:ncp])
+
+distM <- dist(pca.df, method = "euclidean")
+            hc <- hclust(distM, method = "ward.D")
+            hc.groups <- cutree(hc, k)
+```
+
+**Variable factor map**
+
+```{r}
+pca.res$var$contrib[1:10, 1:10]
+```
+
+```{r}
+fviz_pca_var(pca.res, col.var="contrib") +
+  scale_color_gradient2(low = "blue", mid = "green", high = "red", midpoint = 4) + 
+  theme_bw()
+```
+
 ```{r}
 ggplot(data = nans, aes(x = Variable, y = nans, color = "blue")) +
   geom_line(linetype = "dashed") +
