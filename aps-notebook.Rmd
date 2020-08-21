@@ -25,7 +25,7 @@ The training and test sets are given :
 
 * Missing values
 
-* Impute missing values with mean or median or another method could be used, e.g. EM
+* Impute missing values with median or another method could be used, e.g. EM
 
 * Sum up all the values that belong to one histogram
 
@@ -35,7 +35,7 @@ The training and test sets are given :
 
 * Dimensionality Reduction
 
-* Oversampling to deal with imbalaned data
+* Undersampling to deal with imbalaned data
 
 * Split training set into training and validaion sets
 
@@ -107,7 +107,7 @@ var.extr.nans
 
 Exclude the varibales with more than 20% of NaNs from dataset
 
-```{r}
+```{r message=F, warning=F}
 df[, 1:ncol(df)] <- sapply(df[, 1:ncol(df)], as.numeric) # convert variables to numeric type
 df$class         <- as.factor(df$class)
 levels(df$class) <- c("neg", "pos")
@@ -183,7 +183,7 @@ table(df.red.2$class)
 
 Ooooo... there were 48463 observations detected as outlliers, from which 995 belong to postive class. That's mean if we exclude all outliers from db, the df will consist of 11'533 negative observations and only 5 positive observations. This will make it impossible to build accurate model.
 
-In other circumstances I would exclude some outliers, the most extreme, and replace the rest with the median or another metric, but here, since the task is about evaluating the candidate's line of thinking and basic code skills, I will split the data into two sets, one of ehich will have only negative observations and another - only positive. Then replace positive outlier values with the median of posititves and remove negative outliers from db. 
+In other circumstances I would exclude some outliers, the most extreme, and replace the rest with the median or another metric, but here, since the task is about evaluating the candidate's line of thinking and basic code skills, I will split the data into two sets, one of which will have only negative observations and another - only positive. Then replace positive outlier values with the median of posititves and remove negative outliers from db. 
 
 ```{r}
 df.neg <- df.red[df.red$class == "neg", ]
@@ -233,13 +233,14 @@ summary(df.red)
 
 **Feature selections**
 
-* Remove that variables mean and meadian of which are highly different 
+* Remove those variables mean and meadian of which are highly different 
+
 ```{r}
 df.red <- df.red %>% select(-c(ai_000, aj_000, al_000, am_0, at_000, bc_000, cj_000, cl_000, cm_000, dx_000, dy_000))
 summary(df.red)
 ```
 
-* Remove all variables that contains the same val for each row, since they are not informatice for distinguish two classes
+* Remove all variables that contain the same val for each row, since they are not informative to distinguish two classes
 
 ```{r message=F, warning=F}
 sum.each.col <- apply(df.red[, -1], 2, sum)
@@ -248,7 +249,7 @@ df.red       <- select(df.red, -col.names)
 summary(df.red)
 ```
 
-```{r hide=T}
+```{r include=F}
 # OR
 # 
 # FindOutliers <- function (col){
@@ -305,7 +306,7 @@ pca.df <- data.frame(pca.res$ind$coord[, 1:ncp])
 **Variable factor map**
 
 ```{r}
-pca.res$var$contrib[1:10, 1:10]
+pca.res$var$contrib[1:20, 1:10]
 ```
 
 ```{r message=F, warning=F}
@@ -349,12 +350,273 @@ lm.model      <- lm( class ~. , data = data.frame(cbind(class=df.test$class, sca
 lm.importance <- caret::varImp(lm.model)[1]
 lm.importance <- data.frame(cbind(Variable = rownames(lm.importance), Importance = lm.importance$Overall))
 lm.importance$Importance <- as.numeric(as.character(lm.importance$Importance))
-import <- lm.importance[order(lm.importance$Importance, decreasing = T), ][1:20,]
+lm.importance <- lm.importance[order(lm.importance$Importance, decreasing = T), ][1:20,]
+lm.importance
 ```
 
 ```{r message = FALSE, warning = FALSE}
-ggplot(data = import, aes(x =Variable, y = Importance, group=1)) +
+ggplot(data = lm.importance, aes(x =Variable, y = Importance, group=1)) +
   geom_line(linetype = "dashed") +
   geom_point() + 
-  ggtitle("Linear Regression Model")
+  ggtitle("Linear Regression Model") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5))
+```
+
+* Random Forest
+
+```{r message = FALSE, warning = FALSE}
+if(!require(caret)){
+  install.packages("caret"); require(caret)}
+
+if(!require(randomForest)){
+  install.packages("randomForest"); require(randomForest)}
+
+random.forest.mdl <- randomForest(class ~., data = df.red, importance = T)
+importance(random.forest.mdl, scale = T) # reports the variables as more important if they are important for more common class
+import <- caret::varImp(random.forest.mdl)[1]
+
+rf.sign.overall <- data.frame(cbind(Variable = rownames(import), Importance = import, Class = "Overall"))
+colnames(rf.sign.overall) <- c("Variable", "Importance", "Class")
+rf.sign.neg <- data.frame(cbind(Variable = rownames(import), Importance = importance(random.forest.mdl, scale = T)[, 1], Class = "neg"))
+rf.sign.pos <-data.frame(cbind(Variable = rownames(import), Importance = importance(random.forest.mdl, scale = T)[, 2], Class = "pos"))
+
+rf.sign <- rbind(rf.sign.overall, rf.sign.neg, rf.sign.pos)
+rf.sign$Variable <- (rf.sign$Variable)
+rf.sign$Importance <- as.numeric(rf.sign$Importance)
+```
+
+```{r message = FALSE, warning = FALSE}
+ggplot(data = rf.sign[], aes(x = Variable, y = Importance, group = Class, color = Class)) +
+  geom_line(linetype = "dashed") +
+  geom_point() + 
+  ggtitle("Random Forest Model") +
+  theme(legend.position = "bottom",  axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5))
+```
+
+Let's select the ten most sifnificant variables obtained by Random Foresta alogorithm
+
+```{r}
+rf.most.sign <- as.character(rf.sign.overall[order(rf.sign.overall$Importance, decreasing = T), ][1:10, "Variable"])
+df.rf.red   <- cbind(class = df.red$class, data.frame(scale(df.red[, rf.most.sign], center = T, scale = T)))
+```
+
+**Undersampling and classification**
+
+```{r}
+df.mdl <- df.rf.red
+```
+
+* Function for evaluation
+
+```{r}
+#' Evaluation the classification model results
+#' @param conf.matr confusion matrix
+#' @param data.type if "train", training data, if "test", test data
+#' @return df with evaluation measures
+
+EvalClassifier <- function(conf.matr, data.type = "train"){
+  measures           <- data.frame(matrix(nrow = 1, ncol = 6))
+  colnames(measures) <- c("Cost", "Error", "Accuracy", "Recall", "Precision", "F1")
+  
+  measures[1, "Cost"]          <- 10 * conf.matr[2, 1] + 500 * conf.matr[1, 2]
+  measures[1, "Accuracy"]      <- (sum(conf.matr[row(conf.matr) == col(conf.matr)]) / sum(conf.matr)) * 100
+  measures[1, "Error"]         <- 100 - measures[1, "Accuracy"]
+  measures[1, "Recall"]        <- (conf.matr[2, 2] / sum(conf.matr[, 2])) * 100
+  measures[1, "Precision"]     <- (conf.matr[2, 2] / sum(conf.matr[2, ])) * 100
+  measures[1, "F1"]            <- mean(2 * measures[1, "Precision"] * measures[1, "Recall"] / (measures[1, "Precision"] + measures[1, "Recall"]))
+  
+  measures                     <- round(measures, 1)
+  measures                     <- cbind(Data = data.type, measures[, -3])
+  
+  return(measures)
+}
+```
+
+**SVM classifier**
+
+Here let's build only SVM with linear kernel.
+
+* Function for tuning cost, *c*,  parameter in SVM classifier 
+
+```{r message = FALSE, warning = FALSE}
+
+if(!require(kernlab)) {
+  install.packages("kernlab"); require(kernlab)}
+
+#' Tuning cost param, c,  parameter in SVM classifier 
+#' @param input.data training dataset with target variable that should be named as 'class'
+#' @return df with cost param, number of support vactors and calculated errors for each *c*
+
+TuneCinSVM <- function (input.data)
+{
+  cost.params    <- 10^(-2:1)
+  errs           <- data.frame(cbind(C = cost.params, Error = vector("numeric", length(cost.params)), nSV = vector("numeric", length(cost.params))))
+  
+  for (c in cost.params){
+      model <-  ksvm (class ~ ., data = input.data, kernel = 'polydot', C = c, cross = nrow(input.data))
+      errs[errs$C == c, "Error"] <- cross(model) * 100
+      errs[errs$C == c, "nSV"]   <- nSV(model) * 100
+    }
+  
+  return(errs)
+}
+
+```
+
+* Function for SVM classifier.
+
+```{r message = FALSE, warning = FALSE}
+if(!require(e1071)) {
+  install.packages("e1071"); require(e1071)}
+
+
+#' @param train.df training data, 'class' is a target var and placed in the first column
+#' @param train.df test data, 'class' is a target var and placed in the first column
+#' @param best.c best 'c' value obtaied by TuneCinSVM function
+#' @return df with evaluation measures for training and test sets, function EvalClassifier is used
+
+SVMClassifier <- function(train.df, test.df, best.c){
+  svm.mdl          <- svm (train.df[, -1], train.df$class, type = "C-classification", kernel = 'linear', C = best.c, cross = nrow(train.df))
+  prediction.train <- predict(svm.mdl, train.df[, -1])
+  conf.matr        <- table(prediction.train, train.df$class)
+  eval.tbl.train   <- EvalClassifier(conf.matr, "train")
+  
+  prediction.test  <- predict(svm.mdl, test.df[, -1])
+  conf.matr        <- table(prediction.test, test.df$class)
+  eval.tbl.test    <- EvalClassifier(conf.matr, "test")
+  
+  eval.tbl.svm     <- rbind(eval.tbl.train, eval.tbl.test)
+  
+  return(list(mdl = svm.mdl, metrics = eval.tbl.svm, conf.matr = conf.matr) )
+}
+```
+
+```{r}
+set.seed(123)
+
+df.neg <- df.mdl[df.mdl$class == "neg", ]
+df.pos <- df.mdl[df.mdl$class == "pos",]
+
+neg.smpl.size  <- 1000
+sampling.n.rep <- 1#round(nrow(df.neg) / neg.smpl.size, 0)
+
+eval.tbl.svm.final           <-  data.frame(matrix(0, nrow = 2, ncol = 5))
+colnames(eval.tbl.svm.final) <- c("Cost", "Error", "Recall", "Precision", "F1")
+
+for (j in 1:sampling.n.rep){
+  
+  neg.ind     <- sample(seq_len(nrow(df.neg)), size = neg.smpl.size) # sample 1000 observations from negative class
+  df.neg.smpl <- df.neg[neg.ind,]
+  df.smpl     <- rbind(df.pos, df.neg.smpl)
+
+  smp.size <- floor(0.75 * nrow(df.smpl))
+  train.ind <- sample(seq_len(nrow(df.smpl)), size = smp.size)
+
+  train.df <- df.smpl[train.ind, ]
+  valid.df  <- df.smpl[-train.ind, ] # validation ds
+
+  # rbind(train = table(train.df$class), test = table(valid.df$class))
+
+  svm.c <- TuneCinSVM(train.df) # Tune the 'c' parameter in SVM
+
+  # Plots of obtained cost parameters and number of support vectors SV). The best cost parameter is selected based on the lowest error and smallest number of SV.
+
+  ggplot(data = svm.c, aes(x = C, y = Error, group = 1)) +
+    geom_line(linetype = "dashed")+
+    geom_point() + 
+    ggtitle("Error")
+
+  ggplot(data = svm.c, aes(x = C, y = nSV, group = 1)) +
+    geom_line(linetype = "dashed", color = "red") +
+    geom_point() + 
+    ggtitle("Number of Support Vectors")
+
+  # Build the model and evaluate the result
+
+  best.c <- svm.c[svm.c$Error == min(svm.c$Error), ] # the lowest error is recieved 
+  best.c <- best.c[best.c$nSV == min(best.c$nSV), "C"]
+
+  svm.mdl <-  SVMClassifier(train.df, valid.df, best.c)
+  eval.tbl.svm <- svm.mdl$metrics[, -1]
+  mdl <- svm.mdl$mdl
+  conf.matr <- svm.mdl$conf.matr
+  
+  n.rep <- 2
+  for (i in 1:(n.rep - 1)){
+    train.ind  <- sample(seq_len(nrow(df.smpl)), size = smp.size)
+    train.df.2 <- df.smpl[train.ind, ]
+    valid.df.2 <- df.smpl[-train.ind, ]
+  
+    eval.tbl.svm <- eval.tbl.svm + SVMClassifier(train.df.2, valid.df.2, best.c)$metrics[, -1]
+  }
+  eval.tbl.svm         <- eval.tbl.svm / n.rep
+  eval.tbl.svm.final   <- eval.tbl.svm.final + eval.tbl.svm
+}
+  eval.tbl.svm.final   <- eval.tbl.svm.final / sampling.n.rep
+  eval.tbl.svm.final   <- cbind(Data=c("train", "test"), eval.tbl.svm)
+  eval.tbl.svm.final
+```
+
+* Prediction for test data
+
+```{r}
+summary(test.df)
+```
+
+Prepare test ds
+
+```{r message=F, warning= F}
+test.df[test.df == "na"] <- NA
+
+test.ids                   <- test.df$id
+test.df[, 3:ncol(test.df)] <- sapply(test.df[, 3:ncol(test.df)], as.numeric) # convert variables to numeric type
+test.red.df                <- test.df[, -1] # remove column id from ds
+
+# 1. Missing values : impute with median
+test.red.df[, 2:ncol(test.red.df)] <- sapply(test.red.df[, 2:ncol(test.red.df)], function(x) ifelse(is.na(x), 
+                                                                median(x, na.rm = T),
+                                                                x))
+# 2. Summ up the variables that represent each histogram, e.g. ag_hist = sum(ag_001 + ... + ag_009), and select only those variables which RF model predict asthe most significant
+
+test.red.df <- test.red.df %>% mutate(ag_hist = ag_000 + ag_001 + ag_002 + ag_003 + ag_004 + ag_005 + ag_006 + ag_007 + ag_008 + ag_009,
+                              ay_hist = ay_000 + ay_001 + ay_002 + ay_003 + ay_004 + ay_005 + ay_006 + ay_007 + ay_008 + ay_009,
+                              az_hist = az_000 + az_001 + az_002 + az_003 + az_004 + az_005 + az_006 + az_007 + az_008 + az_009,
+                              ba_hist = ba_000 + ba_001 + ba_002 + ba_003 + ba_004 + ba_005 + ba_006 + ba_007 + ba_008 + ba_009,
+                              cn_hist = cn_000 + cn_001 + cn_002 + cn_003 + cn_004 + cn_005 + cn_006 + cn_007 + cn_008 + cn_009,
+                              cs_hist = cs_000 + cs_001 + cs_002 + cs_003 + cs_004 + cs_005 + cs_006 + cs_007 + cs_008 + cs_009,
+                              ee_hist = ee_000 + ee_001 + ee_002 + ee_003 + ee_004 + ee_005 + ee_006 + ee_007 + ee_008 + ee_009) %>%
+                      select(rf.most.sign)
+
+# 3. Outliers treating. Replace all outliers with median value of each column
+
+bxplt         <- boxplot(test.red.df, plot = F)
+upper.whisker <- bxplt$stats[5,]
+lower.whisker <- bxplt$stats[1,]
+
+for (c in 1:ncol(test.red.df)){
+  outlier.idx <- FindOutliers(test.red.df[, c], upper.whisker[c], lower.whisker[c])
+  test.red.df[outlier.idx, c] <- median(test.red.df[, c])
+}
+
+#4. Normalize data
+
+test.red.df.norm <- data.frame(scale(test.red.df, center = T, scale = T))
+```
+
+```{r}
+test.red.df.norm %>%
+  gather() %>%
+    ggplot(aes(value)) +
+      facet_wrap(~key, scales = "free")+
+      geom_density()
+
+```
+
+```{r}
+prediction.test <- predict(mdl, test.red.df.norm)
+write.table(data.frame(prediction.test), "~/Git/aps-failure@st/aps_prediction.csv", append = FALSE, sep = ",", row.names = T, col.names = F)
+```
+
+```{sh}
+ls -lh ~/Git/aps-failure@st
 ```
