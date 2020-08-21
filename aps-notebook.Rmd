@@ -27,9 +27,9 @@ The training and test sets are given :
 
 * Impute missing values with mean or median or another method could be used, e.g. EM
 
-* Outlier detection
-
 * Sum up all the values that belong to one histogram
+
+* Outlier detection
 
 * Feature significance and feature selection
 
@@ -118,7 +118,7 @@ dim(df.red)
 Impute the rest of NaNs with median of each variable. The reason why with median is because the data contains many outliers. It is obvious if we look at the basic statustics of teh data, e.g. the function $summary$ returns the Min, 1st Qu., Median, Mean 3rd Qu. and Max values.
 
 ```{r}
-imputes.mice <- mice(df.red, m = 1, maxit = 5, method = "rf") # another method that uses random forest but time costly: we will have 1 imputed datasets, every ds will be created after a maximum of 5 iterations
+# imputes.mice <- mice(df.red, m = 1, maxit = 5, method = "rf") # another method that uses random forest but time costly: we will have 1 imputed datasets, every ds will be created after a maximum of 5 iterations
 
 df.red[, 2:ncol(df.red)] <- sapply(df.red[, 2:ncol(df.red)], function(x) ifelse(is.na(x), 
                                                                 median(x, na.rm = T),
@@ -136,7 +136,7 @@ colnames(df.red)
 # ag_hist = sum(ag_000 + ... + ag_009)
 # ay_hist = sum(ay_000 + ... + ay_009)) ... , az, ba, cn, cs, ee
 
-df.red.2 <- df.red %>% mutate(ag_hist = ag_000 + ag_001 + ag_002 + ag_003 + ag_004 + ag_005 + ag_006 + ag_007 + ag_008 + ag_009,
+df.red <- df.red %>% mutate(ag_hist = ag_000 + ag_001 + ag_002 + ag_003 + ag_004 + ag_005 + ag_006 + ag_007 + ag_008 + ag_009,
                               ay_hist = ay_000 + ay_001 + ay_002 + ay_003 + ay_004 + ay_005 + ay_006 + ay_007 + ay_008 + ay_009,
                               az_hist = az_000 + az_001 + az_002 + az_003 + az_004 + az_005 + az_006 + az_007 + az_008 + az_009,
                               ba_hist = ba_000 + ba_001 + ba_002 + ba_003 + ba_004 + ba_005 + ba_006 + ba_007 + ba_008 + ba_009,
@@ -150,6 +150,117 @@ df.red.2 <- df.red %>% mutate(ag_hist = ag_000 + ag_001 + ag_002 + ag_003 + ag_0
                                 cn_000 , cn_001 , cn_002 , cn_003 , cn_004 , cn_005 , cn_006 , cn_007 , cn_008 , cn_009,
                                 cs_000 , cs_001 , cs_002 , cs_003 , cs_004 , cs_005 , cs_006 , cs_007 , cs_008 , cs_009,
                                 ee_000 , ee_001 , ee_002 , ee_003 , ee_004 , ee_005 , ee_006 , ee_007 , ee_008 , ee_009))
+```
+
+
+Idea was to use PCA to deal with outliers, i.e. to use reduced data to feed them into clustering model to determine the group with extreme values. During the work, memory issue pushed me to get rid out of outliers by computing the whiskers, i.e. 1.5 $\times$ IQR above and below 3rd and 1st quartiles, and exclude such observations from further analysis.
+
+upper.whisker = $\min(\max(x), Q_3 + 1.5 * IQR)$
+lower.whisker = $\max(\min(x), Q_1 - 1.5 * IQR)$
+
+```{r message=F, warning=F}
+bxplt         <- boxplot(df.red, plot = F)
+upper.whisker <- bxplt$stats[5,]
+lower.whisker <- bxplt$stats[1,]
+
+df.outliers <- bxplt$out
+
+FindOutliers <- function (col, up.wh, low.wh){
+  val <- col[col < low.wh | col > up.wh]
+  idx <- which(col %in% val)
+  idx
+}
+
+outlier.idx <- vector()
+
+for (c in 2:ncol(df.red))
+  outlier.idx <- append(outlier.idx, FindOutliers(df.red[, c], upper.whisker[c], lower.whisker[c]))
+outlier.idx <- unique(outlier.idx)
+
+df.red.2 <- df.red[-outlier.idx,]
+table(df.red.2$class)
+```
+
+Ooooo... there were 48463 observations detected as outlliers, from which 995 belong to postive class. That's mean if we exclude all outliers from db, the df will consist of 11'533 negative observations and only 5 positive observations. This will make it impossible to build accurate model.
+
+In other circumstances I would exclude some outliers, the most extreme, and replace the rest with the median or another metric, but here, since the task is about evaluating the candidate's line of thinking and basic code skills, I will split the data into two sets, one of ehich will have only negative observations and another - only positive. Then replace positive outlier values with the median of posititves and remove negative outliers from db. 
+
+```{r}
+df.neg <- df.red[df.red$class == "neg", ]
+df.pos <- df.red[df.red$class == "pos",]
+```
+
+**Negative observations**
+
+```{r message=F, warning=F}
+bxplt         <- boxplot(df.neg, plot = F)
+upper.whisker <- bxplt$stats[5,]
+lower.whisker <- bxplt$stats[1,]
+
+outlier.idx <- vector()
+
+for (c in 2:ncol(df.neg))
+  outlier.idx <- append(outlier.idx, FindOutliers(df.neg[, c], upper.whisker[c], lower.whisker[c]))
+outlier.idx <- unique(outlier.idx)
+
+df.neg.no.out <- df.neg[-outlier.idx,]
+```
+
+**Positive observations**
+
+```{r message=F, warning=F}
+bxplt         <- boxplot(df.pos, plot = F)
+upper.whisker <- bxplt$stats[5,]
+lower.whisker <- bxplt$stats[1,]
+
+df.pos.no.out <- df.pos
+for (c in 2:ncol(df.pos)){
+  outlier.idx <- FindOutliers(df.pos[, c], upper.whisker[c], lower.whisker[c])
+  df.pos.no.out[outlier.idx, c] <- median(df.pos.no.out[, c])
+}
+```
+
+Combine positive and negative ds into one
+
+```{r}
+df.red <- rbind(df.neg.no.out, df.pos.no.out) 
+dim(df.red)
+```
+
+```{r}
+summary(df.red)
+```
+
+**Feature selections**
+
+* Remove that variables mean and meadian of which are highly different 
+```{r}
+df.red <- df.red %>% select(-c(ai_000, aj_000, al_000, am_0, at_000, bc_000, cj_000, cl_000, cm_000, dx_000, dy_000))
+summary(df.red)
+```
+
+* Remove all variables that contains the same val for each row, since they are not informatice for distinguish two classes
+
+```{r message=F, warning=F}
+sum.each.col <- apply(df.red[, -1], 2, sum)
+col.names    <- names(sum.each.col[sum.each.col == nrow(df.red)])
+df.red       <- select(df.red, -col.names)
+summary(df.red)
+```
+
+```{r hide=T}
+# OR
+# 
+# FindOutliers <- function (col){
+#   val <- boxplot(col, plot = F)$out
+#   idx <- which(col %in% val)
+#   idx
+# }
+# 
+# for (c in 2:ncol(df.red))
+#   outlier.idx <- append(outlier.idx, FindOutliers(df.red[, c]))
+# outlier.idx <- unique(outlier.idx)
+
 ```
 
 PCA
@@ -167,13 +278,13 @@ if(!require(FactoMineR)) {
   install.packages("FactoMineR"); require(FactoMineR)}
 
 num.pc  <- 20
-pca.res <- PCA(df.red.2, quali.sup = 1, scale = T, graph = F, ncp = num.pc)
+pca.res <- PCA(df.red, quali.sup = 1, scale = T, graph = F, ncp = num.pc)
 ```
 
 
 ```{r}
 eigenvalues <- pca.res$eig
-eigenvalues
+eigenvalues[1:20,]
 ```
 
 ```{r message = FALSE, warning = FALSE}
@@ -187,12 +298,8 @@ fviz_screeplot(pca.res, ncp = 20, linecolor = "red")
 Let's take the first 5 PC to cluster the data and evaluate outliers to be removed. Once it is done, we will come back to PCA more precisely
 
 ```{r}
-ncp <- 5
+ncp <- 10
 pca.df <- data.frame(pca.res$ind$coord[, 1:ncp])
-
-distM <- dist(pca.df, method = "euclidean")
-            hc <- hclust(distM, method = "ward.D")
-            hc.groups <- cutree(hc, k)
 ```
 
 **Variable factor map**
@@ -201,17 +308,53 @@ distM <- dist(pca.df, method = "euclidean")
 pca.res$var$contrib[1:10, 1:10]
 ```
 
-```{r}
-fviz_pca_var(pca.res, col.var="contrib") +
-  scale_color_gradient2(low = "blue", mid = "green", high = "red", midpoint = 4) + 
+```{r message=F, warning=F}
+fviz_pca_var(pca.res, col.var="contrib", title = "Variable factor map") +
+  scale_color_gradient2(low = "blue", mid = "green", high = "red", midpoint = 3) + 
   theme_bw()
 ```
 
-```{r}
-ggplot(data = nans, aes(x = Variable, y = nans, color = "blue")) +
+**Individuals factor map**
+
+```{r message=F, warning=F}
+fviz_pca_ind(pca.res, label="none", habillage=df.red$class, addEllipses = T, ellipse.level=0.95, title="Individual factor map")
+```
+
+```{r message = FALSE, warning = FALSE}
+if(!require(corrplot)) {
+  install.packages("corrplot"); require(corrplot)}
+
+if(!require(RColorBrewer)) {
+  install.packages("RColorBrewer"); require(RColorBrewer)}
+
+cor.mtrx <- cor(df.red[, -1], method = "pearson")
+
+corrplot(cor.mtrx, type="upper", order="hclust", col = brewer.pal(n=8, name="RdYlBu"), tl.cex = 0.5)
+```
+
+**Feature significance**
+
+* Linear Regression Model
+```{r message = FALSE, warning = FALSE}
+df.test <- df.red
+
+if(!require(relaimpo)){
+  install.packages("relaimpo"); require(relaimpo)}
+
+if(!require(caret)){
+  install.packages("caret"); require(caret)}
+
+
+lm.model      <- lm( class ~. , data = data.frame(cbind(class=df.test$class, scale(df.test[, -1], center = T, scale = T)))) # fit lm() model
+lm.importance <- caret::varImp(lm.model)[1]
+lm.importance <- data.frame(cbind(Variable = rownames(lm.importance), Importance = lm.importance$Overall))
+lm.importance$Importance <- as.numeric(as.character(lm.importance$Importance))
+import <- lm.importance[order(lm.importance$Importance, decreasing = T), ][1:20,]
+```
+
+```{r message = FALSE, warning = FALSE}
+ggplot(data = import, aes(x =Variable, y = Importance, group=1)) +
   geom_line(linetype = "dashed") +
   geom_point() + 
-  ggtitle("Missing values detection") +
-  xlab("% of NaNs") +
-  ylab("Variables")
+  ggtitle("Linear Regression Model")
 ```
