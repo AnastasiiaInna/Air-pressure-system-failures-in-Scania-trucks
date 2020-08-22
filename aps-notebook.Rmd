@@ -1,7 +1,8 @@
 ---
 title: "APS Failure at Scania Trucks"
-author: Anastasiia Hryhorzhevska
-output: 
+author: "Anastasiia Hryhorzhevska"
+output:
+  pdf_document: default
   html_document: default
 ---
 
@@ -18,7 +19,6 @@ The training and test sets are given :
  * Test set : 16'000 $\times$ 171
 
  * Target class : 1st column, "neg" - trucks with failures for components not related to the APS, "pos" - component failures for a specific component of the APS system 
-
  * Features : 170 numeric, 70 of which belong to 7 histograms with ten bins each
 
 **3. Methodology**
@@ -86,6 +86,9 @@ df.neg <- df[df$class == "neg", ]
 df.pos <- df[df$class == "pos",]
 ```
 
+
+**Missing value treatment**
+
 Compute the percentage of missing values in each feature
 
 ```{r}
@@ -95,6 +98,11 @@ round(nan.cnt.tbl["TRUE"] / sum(nan.cnt.tbl) * 100, 2) # % of NaN value in the e
 ```
 
 ```{r}
+
+#' Count % of NaNs by column
+#' @x input vector 
+#' @return % of NaN at 'x'
+
 CntNan <- function(x){
   tbl <- table(is.na(x))
   round(tbl["TRUE"] / sum(tbl) * 100, 2)
@@ -153,7 +161,11 @@ df.red <- df.red %>% mutate(ag_hist = ag_000 + ag_001 + ag_002 + ag_003 + ag_004
 ```
 
 
-Idea was to use PCA to deal with outliers, i.e. to use reduced data to feed them into clustering model to determine the group with extreme values. During the work, memory issue pushed me to get rid out of outliers by computing the whiskers, i.e. 1.5 $\times$ IQR above and below 3rd and 1st quartiles, and exclude such observations from further analysis.
+**Outliers treatment**
+
+1. PCA to builf clusters and identify the group with exreme value. During implementation memory issue appered, that's why another method was used.
+
+2. Get rid out of outliers by computing the whiskers, i.e. 1.5 $\times$ IQR above and below 3rd and 1st quartiles, and exclude such observations from further analysis.
 
 upper.whisker = $\min(\max(x), Q_3 + 1.5 * IQR)$
 lower.whisker = $\max(\min(x), Q_1 - 1.5 * IQR)$
@@ -181,9 +193,9 @@ df.red.2 <- df.red[-outlier.idx,]
 table(df.red.2$class)
 ```
 
-Ooooo... there were 48463 observations detected as outlliers, from which 995 belong to postive class. That's mean if we exclude all outliers from db, the df will consist of 11'533 negative observations and only 5 positive observations. This will make it impossible to build accurate model.
+Ooooo... there were 48'463 observations detected as outlliers, from which 995 belong to postive class. That's mean if we exclude all outliers from db, the df will consist of 11'533 negative observations and only 5 positive observations. This will make it impossible to build accurate model.
 
-In other circumstances I would exclude some outliers, the most extreme, and replace the rest with the median or another metric, but here, since the task is about evaluating the candidate's line of thinking and basic code skills, I will split the data into two sets, one of which will have only negative observations and another - only positive. Then replace positive outlier values with the median of posititves and remove negative outliers from db. 
+In other circumstances I would exclude some outliers, the most extreme, and replace the rest with the median or another metric or do somethng more what comes up during the implementation :), but here, since the task is about evaluating the candidate's line of thinking and basic code skills, I will split the data into two sets, one of which will have only negative observations and another - only positive. Then replace positive outlier values with the median of posititves and remove negative outliers from db. 
 
 ```{r}
 df.neg <- df.red[df.red$class == "neg", ]
@@ -231,7 +243,7 @@ dim(df.red)
 summary(df.red)
 ```
 
-**Feature selections**
+**Feature selection**
 
 * Remove those variables mean and meadian of which are highly different 
 
@@ -240,7 +252,7 @@ df.red <- df.red %>% select(-c(ai_000, aj_000, al_000, am_0, at_000, bc_000, cj_
 summary(df.red)
 ```
 
-* Remove all variables that contain the same val for each row, since they are not informative to distinguish two classes
+* Remove all variables that contain the same val for each col, i.e. var(x) == 0, since they are not informative to distinguish two classes
 
 ```{r message=F, warning=F}
 sum.each.col <- apply(df.red[, -1], 2, sum)
@@ -248,6 +260,38 @@ col.names    <- names(sum.each.col[sum.each.col == nrow(df.red)])
 df.red       <- select(df.red, -col.names)
 summary(df.red)
 ```
+
+**Correlation between variables**
+
+```{r message = FALSE, warning = FALSE}
+if(!require(corrplot)) {
+  install.packages("corrplot"); require(corrplot)}
+
+if(!require(RColorBrewer)) {
+  install.packages("RColorBrewer"); require(RColorBrewer)}
+
+cor.mtrx <- cor(df.red[, -1], method = "pearson")
+
+corrplot(cor.mtrx, type="upper", order="hclust", col = brewer.pal(n=8, name="RdYlBu"), tl.cex = 0.5)
+```
+
+
+It is seen that many of the variables have high correlation. Since we don't have the infromation about the contents of variables and their technical relationships, it is necessary to extract relevant variables using data analysis.
+
+**Variance within variables. Distribution plots**
+
+Let's have a look at the distribution of the reduced data. We want to have data that normally distributed.  Applying certain methods to data that are not normally distributed can give misleading or incorrect results. However, most methods that assume normality are robust enough for all data except the very abnormal. 
+
+```{r}
+df.red[, -1] %>%
+  gather() %>%
+    ggplot(aes(value)) +
+      facet_wrap(~key, scales = "free")+
+      geom_density()
+
+```
+
+O_o, only histogram variables follow normal (Gaussian) distribution. Two datasets for building classififcation models will be created. The first ds will contain only histogram variabes, the second ds - the most significant variables (the significance of vars will be identfired by either of three methods, PCA, linear regression, random forest).
 
 ```{r include=F}
 # OR
@@ -264,7 +308,9 @@ summary(df.red)
 
 ```
 
-PCA
+**Dimenationality reduction. PCA**
+
+The reason to perform PCA:
 
 - to find hidden patterns
 
@@ -278,7 +324,7 @@ PCA
 if(!require(FactoMineR)) {
   install.packages("FactoMineR"); require(FactoMineR)}
 
-num.pc  <- 20
+num.pc  <- 20 # number of principal components to compute
 pca.res <- PCA(df.red, quali.sup = 1, scale = T, graph = F, ncp = num.pc)
 ```
 
@@ -288,6 +334,8 @@ eigenvalues <- pca.res$eig
 eigenvalues[1:20,]
 ```
 
+First twenty PCs explain 70% of variation of entire ds. 
+
 ```{r message = FALSE, warning = FALSE}
 
 if(!require(factoextra)){
@@ -296,17 +344,19 @@ if(!require(factoextra)){
 fviz_screeplot(pca.res, ncp = 20, linecolor = "red")
 ```
 
-Let's take the first 5 PC to cluster the data and evaluate outliers to be removed. Once it is done, we will come back to PCA more precisely
+Following Kraiser rule, let's take the first 13 PC (eigenvalues of which are greater than 1) to further analysis.
 
 ```{r}
-ncp <- 10
+ncp <- 13
 pca.df <- data.frame(pca.res$ind$coord[, 1:ncp])
 ```
 
 **Variable factor map**
 
+Variable factor map help to find the positively and negatively correlated vars, significance of each var (the closer the var is to circle of correlation, the more important in explaining the variability of ds), and together with individual factor map provide the infromation how the samples relate to each other.
+
 ```{r}
-pca.res$var$contrib[1:20, 1:10]
+pca.res$var$contrib[, 1:10]
 ```
 
 ```{r message=F, warning=F}
@@ -315,27 +365,22 @@ fviz_pca_var(pca.res, col.var="contrib", title = "Variable factor map") +
   theme_bw()
 ```
 
+The frist two PCs explains almost 27% of variation of th entire ds. The most significant vars, according to PCA, bb_000, bu_000, bv_000 (red color on the plot).  moreover the correlation between them is equal to 1. This means that they carry the same information about variability in data, and two of these var could be excluded from the further analysis. The same situation is with bg_000 and ah_000. 
+
 **Individuals factor map**
 
 ```{r message=F, warning=F}
 fviz_pca_ind(pca.res, label="none", habillage=df.red$class, addEllipses = T, ellipse.level=0.95, title="Individual factor map")
 ```
 
-```{r message = FALSE, warning = FALSE}
-if(!require(corrplot)) {
-  install.packages("corrplot"); require(corrplot)}
-
-if(!require(RColorBrewer)) {
-  install.packages("RColorBrewer"); require(RColorBrewer)}
-
-cor.mtrx <- cor(df.red[, -1], method = "pearson")
-
-corrplot(cor.mtrx, type="upper", order="hclust", col = brewer.pal(n=8, name="RdYlBu"), tl.cex = 0.5)
-```
+Most of the two principal component axes are overlapped when plotted by class label, but the regions with a large number of positive classes and the regions with a dense and solid negative class are separated.
 
 **Feature significance**
 
+Let's build few models to identify the most significant vars.
+
 * Linear Regression Model
+
 ```{r message = FALSE, warning = FALSE}
 df.test <- df.red
 
@@ -372,12 +417,16 @@ if(!require(randomForest)){
   install.packages("randomForest"); require(randomForest)}
 
 random.forest.mdl <- randomForest(class ~., data = df.red, importance = T)
-importance(random.forest.mdl, scale = T) # reports the variables as more important if they are important for more common class
-import <- caret::varImp(random.forest.mdl)[1]
 
+# Overall importance, i.e. Overall class = pos class + neg class
+import <- caret::varImp(random.forest.mdl)[1]
 rf.sign.overall <- data.frame(cbind(Variable = rownames(import), Importance = import, Class = "Overall"))
 colnames(rf.sign.overall) <- c("Variable", "Importance", "Class")
+
+# Negative class importance
 rf.sign.neg <- data.frame(cbind(Variable = rownames(import), Importance = importance(random.forest.mdl, scale = T)[, 1], Class = "neg"))
+
+# Posititve class importance
 rf.sign.pos <-data.frame(cbind(Variable = rownames(import), Importance = importance(random.forest.mdl, scale = T)[, 2], Class = "pos"))
 
 rf.sign <- rbind(rf.sign.overall, rf.sign.neg, rf.sign.pos)
@@ -393,7 +442,7 @@ ggplot(data = rf.sign[], aes(x = Variable, y = Importance, group = Class, color 
   theme(legend.position = "bottom",  axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5))
 ```
 
-Let's select the ten most sifnificant variables obtained by Random Foresta alogorithm
+For further analysis ten most significant var according to RF algorithm was selected:
 
 ```{r}
 rf.most.sign <- as.character(rf.sign.overall[order(rf.sign.overall$Importance, decreasing = T), ][1:10, "Variable"])
@@ -402,9 +451,25 @@ df.rf.red   <- cbind(class = df.red$class, data.frame(scale(df.red[, rf.most.sig
 
 **Undersampling and classification**
 
+Since the data are highly imbalanced, complement using the oversampling method or the undersampling method, and balance each class to create a model. Here, I will use only undersampling.
+
+Methodology :
+
+* Randomly sample 1000 observations from negative class and combine them with positive observations. This action will be repeated $m$ times and next steps will be applied for the new sampled subset;
+
+* The new created data set will be  divided into training and validation, 75% and 25%;
+
+* The cost, c, parameter in SVM will be tuned;
+
+* Each experiment will repeated n times and average of evaluation metrics were computed;
+
+* Confusion matrices will built and evaluation metrics will computed for both training and validation data sets.
+
 ```{r}
 df.mdl <- df.rf.red
 ```
+
+Some functions for classififcation
 
 * Function for evaluation
 
@@ -553,12 +618,13 @@ for (j in 1:sampling.n.rep){
   eval.tbl.svm.final   <- eval.tbl.svm.final + eval.tbl.svm
 }
   eval.tbl.svm.final   <- eval.tbl.svm.final / sampling.n.rep
-  eval.tbl.svm.final   <- cbind(Data=c("train", "test"), eval.tbl.svm)
+  eval.tbl.svm.final   <- cbind(Data=c("train", "valid"), eval.tbl.svm)
   eval.tbl.svm.final
 ```
 
-* Prediction for test data
+**Prediction for test data**
 
+First we must prepare data, i.e. transform to the same view as training set, and deal with missing values and outliers. 
 ```{r}
 summary(test.df)
 ```
@@ -584,8 +650,9 @@ test.red.df <- test.red.df %>% mutate(ag_hist = ag_000 + ag_001 + ag_002 + ag_00
                               ba_hist = ba_000 + ba_001 + ba_002 + ba_003 + ba_004 + ba_005 + ba_006 + ba_007 + ba_008 + ba_009,
                               cn_hist = cn_000 + cn_001 + cn_002 + cn_003 + cn_004 + cn_005 + cn_006 + cn_007 + cn_008 + cn_009,
                               cs_hist = cs_000 + cs_001 + cs_002 + cs_003 + cs_004 + cs_005 + cs_006 + cs_007 + cs_008 + cs_009,
-                              ee_hist = ee_000 + ee_001 + ee_002 + ee_003 + ee_004 + ee_005 + ee_006 + ee_007 + ee_008 + ee_009) %>%
-                      select(rf.most.sign)
+                              ee_hist = ee_000 + ee_001 + ee_002 + ee_003 + ee_004 + ee_005 + ee_006 + ee_007 + ee_008 + ee_009) 
+
+test.red.df <- test.red.df[, rf.most.sign]
 
 # 3. Outliers treating. Replace all outliers with median value of each column
 
@@ -617,6 +684,6 @@ prediction.test <- predict(mdl, test.red.df.norm)
 write.table(data.frame(prediction.test), "~/Git/aps-failure@st/aps_prediction.csv", append = FALSE, sep = ",", row.names = T, col.names = F)
 ```
 
-```{sh}
+```{sh include = F}
 ls -lh ~/Git/aps-failure@st
 ```
