@@ -7,11 +7,11 @@ Predict failures and minimize costs based on sensor readings
 https://www.kaggle.com/uciml/aps-failure-at-scania-trucks-data-set
 
 ## Result
- *aps_notebook.Rmd* contains methodology, code and comments
+ *aps_notebook.Rmd* : contains methodology, code and comments
  
- *aps_prediction.txt* file with test predictions
+ *aps_prediction.txt* : file with test predictions
  
- *aps_prediction.html* file the result of aps_prediction.Rmd
+ *aps_prediction.html* : file the result of aps_prediction.Rmd
 
 
 ## Introduction
