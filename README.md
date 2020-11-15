@@ -30,9 +30,9 @@ The attribute names of the data have been anonymized for proprietary reasons. It
    
    bin 4 collect values for temperature T > 20 
 
-     b1  |  b2  |  b3  |  b4  
-   ----------------------------- 
-         -20     0      20
+     b1  |  b2  |  b3  |  b4     
+    -------------------------
+        -20     0      20
 
 The attributes are as follows: class, then anonymized operational data. The operational data have an identifier and a bin id, like "Identifier_Bin". In total there are 171 attributes, of which 7 are histogram variabels. Missing values are denoted by "na".
 
