@@ -12,6 +12,8 @@ https://www.kaggle.com/uciml/aps-failure-at-scania-trucks-data-set
  *aps_prediction.txt* : file with test predictions
  
  *aps_prediction.html* : file the result of aps_prediction.Rmd
+ 
+ *aps_overview* : methodology overview
 
 
 ## Introduction
